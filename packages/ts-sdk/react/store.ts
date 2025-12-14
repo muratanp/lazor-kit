@@ -20,7 +20,9 @@ export const useWalletStore = create<WalletState>()(
       wallet: null,
       config: {
         portalUrl: DEFAULTS.PORTAL_URL,
-        paymasterUrl: DEFAULTS.PAYMASTER_URL,
+        paymasterConfig: {
+          paymasterUrl: DEFAULTS.PAYMASTER_URL,
+        },
         rpcUrl: DEFAULTS.RPC_ENDPOINT,
       },
       connection: new Connection(DEFAULTS.RPC_ENDPOINT!, DEFAULT_COMMITMENT),

@@ -49,7 +49,7 @@ export const connectAction = async (
 
         try {
             const dialogResult: DialogResult = await dialogManager.openConnect();
-            const paymaster = new Paymaster(config.paymasterUrl);
+            const paymaster = new Paymaster(config.paymasterConfig);
             const smartWallet = new LazorkitClient(get().connection);
 
             const credentialHash = asCredentialHash(getCredentialHash(dialogResult.credentialId));
@@ -151,7 +151,7 @@ export const signAndSendTransactionAction = async (
     set({ isSigning: true, error: null });
 
     try {
-        const paymaster = new Paymaster(config.paymasterUrl);
+        const paymaster = new Paymaster(config.paymasterConfig);
         const smartWallet = new LazorkitClient(connection);
 
         const feePayer = await paymaster.getPayer();

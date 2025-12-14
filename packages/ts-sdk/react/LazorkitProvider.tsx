@@ -10,11 +10,13 @@ import type { ReactNode } from 'react';
 import { useWalletStore } from './store';
 import { DEFAULTS } from '../config';
 
+import { PaymasterConfig } from '../core/wallet/Paymaster';
+
 export interface LazorkitProviderProps {
   children: ReactNode;
   rpcUrl?: string;
   portalUrl?: string;
-  paymasterUrl?: string;
+  paymasterConfig?: PaymasterConfig;
 }
 
 export const LazorkitProvider = (props: LazorkitProviderProps) => {
@@ -22,19 +24,19 @@ export const LazorkitProvider = (props: LazorkitProviderProps) => {
     children,
     rpcUrl = DEFAULTS.RPC_ENDPOINT,
     portalUrl = DEFAULTS.PORTAL_URL,
-    paymasterUrl = DEFAULTS.PAYMASTER_URL
+    paymasterConfig = { paymasterUrl: DEFAULTS.PAYMASTER_URL }
   } = props;
-  
+
   const { setConfig } = useWalletStore();
 
   useEffect(() => {
     // Initialize configuration in store
     setConfig({
       portalUrl,
-      paymasterUrl,
+      paymasterConfig,
       rpcUrl
     });
-  }, [rpcUrl, portalUrl, paymasterUrl, setConfig]);
+  }, [rpcUrl, portalUrl, paymasterConfig, setConfig]);
 
   return <>{children}</>;
 };

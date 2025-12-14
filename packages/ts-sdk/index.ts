@@ -33,3 +33,5 @@ export {
 
 export { Paymaster } from './core/wallet/Paymaster';
 export * from './core/contract';
+export * from './core/adapter';
+

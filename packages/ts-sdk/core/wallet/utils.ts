@@ -10,7 +10,7 @@ export const createDialogManager = (config: WalletConfig): DialogManager => {
     return new DialogManager({
         portalUrl: config.portalUrl,
         rpcUrl: config.rpcUrl,
-        paymasterUrl: config.paymasterUrl,
+        paymasterUrl: config.paymasterConfig.paymasterUrl,
     });
 };
 
@@ -43,6 +43,7 @@ export const handleActionError = (
  * Cleans up legacy local storage data
  */
 export const cleanupLegacyStorage = (): void => {
+    if (typeof window === 'undefined') return;
     const oldZustandData = localStorage.getItem('lazorkit-wallet');
     if (oldZustandData) {
         try {

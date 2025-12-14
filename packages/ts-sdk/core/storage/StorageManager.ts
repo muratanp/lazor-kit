@@ -16,9 +16,11 @@ export interface WalletInfo {
   readonly accountName?: string;
 }
 
+import { PaymasterConfig } from '../wallet/Paymaster';
+
 export interface WalletConfig {
   readonly portalUrl: string;
-  readonly paymasterUrl: string;
+  readonly paymasterConfig: PaymasterConfig;
   readonly rpcUrl?: string;
 }
 
@@ -28,6 +30,7 @@ export interface WalletConfig {
 export const storage = {
   getItem: async (name: string): Promise<string | null> => {
     try {
+      if (typeof window === 'undefined') return null;
       const result = localStorage.getItem(name);
       return result;
     } catch (error) {
@@ -38,6 +41,7 @@ export const storage = {
 
   setItem: async (name: string, value: string): Promise<void> => {
     try {
+      if (typeof window === 'undefined') return;
       localStorage.setItem(name, value);
     } catch (error) {
       console.error('Error writing to localStorage:', error, {
@@ -49,6 +53,7 @@ export const storage = {
 
   removeItem: async (name: string): Promise<void> => {
     try {
+      if (typeof window === 'undefined') return;
       localStorage.removeItem(name);
     } catch (error) {
       console.error('Error removing from localStorage:', error, { key: name });

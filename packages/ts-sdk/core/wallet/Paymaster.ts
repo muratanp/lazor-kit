@@ -8,16 +8,33 @@ import {
 } from '@solana/web3.js';
 import { Logger } from '../../utils/logger';
 import { Buffer } from 'buffer';
+export interface PaymasterConfig {
+    paymasterUrl: string;
+    apiKey?: string;
+}
+
 export class Paymaster {
     private endpoint: string;
+    private apiKey?: string;
     private logger = new Logger('Paymaster');
 
     /**
      * Create a new Paymaster instance
-     * @param endpoint URL of the paymaster service
+     * @param config Configuration for the paymaster service
      */
-    constructor(endpoint: string) {
-        this.endpoint = endpoint;
+    constructor(config: PaymasterConfig) {
+        this.endpoint = config.paymasterUrl;
+        this.apiKey = config.apiKey;
+    }
+
+    private getHeaders(): HeadersInit {
+        const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+        };
+        if (this.apiKey) {
+            headers['x-api-key'] = this.apiKey;
+        }
+        return headers;
     }
 
     /**
@@ -28,9 +45,7 @@ export class Paymaster {
         try {
             const response = await fetch(`${this.endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify({
                     jsonrpc: '2.0',
                     id: 1,
@@ -60,9 +75,7 @@ export class Paymaster {
         try {
             const response = await fetch(`${this.endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify({
                     jsonrpc: '2.0',
                     method: 'getBlockhash',
@@ -97,9 +110,7 @@ export class Paymaster {
 
             const response = await fetch(`${this.endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify({
                     jsonrpc: '2.0',
                     method: 'signTransaction',
@@ -167,9 +178,7 @@ export class Paymaster {
 
             const response = await fetch(`${this.endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify({
                     jsonrpc: '2.0',
                     method: 'signAndSendTransaction',
@@ -233,9 +242,7 @@ export class Paymaster {
         try {
             const response = await fetch(`${this.endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify({
                     jsonrpc: '2.0',
                     method: 'signAndSendTransaction',

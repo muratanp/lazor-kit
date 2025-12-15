@@ -4,7 +4,7 @@
  */
 
 import { useCallback } from 'react';
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction, AddressLookupTableAccount } from '@solana/web3.js';
 import { useWalletStore } from './store';
 import { WalletInfo } from '../core/storage';
 
@@ -19,10 +19,22 @@ export interface WalletHookInterface {
   wallet: WalletInfo | null;
 
   // Actions
-  connect: () => Promise<WalletInfo>;
+  connect: (options?: { feeMode?: 'paymaster' | 'user' }) => Promise<WalletInfo>;
   disconnect: () => Promise<void>;
-  signAndSendTransaction: (instruction: TransactionInstruction) => Promise<string>;
+  signAndSendTransaction: (payload: {
+    instructions: TransactionInstruction[],
+    transactionOptions?: {
+      feeToken?: string,
+      addressLookupTableAccounts?: AddressLookupTableAccount[],
+      computeUnitLimit?: number,
+      clusterSimulation?: 'devnet' | 'mainnet'
+    }
+  }) => Promise<string>;
+  signMessage: (message: string) => Promise<{ signature: string, signedPayload: string }>;
+  verifyMessage: (args: { signedPayload: Uint8Array, signature: Uint8Array, publicKey: Uint8Array }) => Promise<boolean>;
 }
+
+import { verifySignatureBrowser } from '../utils/verify';
 
 /**
  * Hook for interacting with the Lazorkit wallet
@@ -38,14 +50,15 @@ export const useWallet = (): WalletHookInterface => {
     connect,
     disconnect,
     signAndSendTransaction,
+    signMessage,
   } = useWalletStore();
 
   /**
    * Handle wallet connection
    */
-  const handleConnect = useCallback(async (): Promise<WalletInfo> => {
+  const handleConnect = useCallback(async (options?: { feeMode?: 'paymaster' | 'user' }): Promise<WalletInfo> => {
     try {
-      return await connect();
+      return await connect(options);
     } catch (error) {
       console.error('Failed to connect wallet:', error);
       throw error;
@@ -68,9 +81,15 @@ export const useWallet = (): WalletHookInterface => {
    * Handle transaction signing and sending
    */
   const handleSignAndSendTransaction = useCallback(
-    async (instruction: TransactionInstruction): Promise<string> => {
+    async (payload: {
+      instructions: TransactionInstruction[],
+      transactionOptions?: { feeToken?: string, addressLookupTableAccounts?: AddressLookupTableAccount[], computeUnitLimit?: number, clusterSimulation?: 'devnet' | 'mainnet' }
+    }): Promise<string> => {
       try {
-        return await signAndSendTransaction(instruction);
+        return await signAndSendTransaction({
+          instructions: payload.instructions,
+          transactionOptions: payload.transactionOptions
+        });
       } catch (error) {
         console.error('Failed to sign and send transaction:', error);
         throw error;
@@ -79,9 +98,44 @@ export const useWallet = (): WalletHookInterface => {
     [signAndSendTransaction]
   );
 
+  /**
+   * Handle message signing
+   */
+  const handleSignMessage = useCallback(
+    async (message: string): Promise<{ signature: string, signedPayload: string }> => {
+      try {
+        return await signMessage(message);
+      } catch (error) {
+        console.error('Failed to sign message:', error);
+        throw error;
+      }
+    },
+    [signMessage]
+  );
+
+  /**
+   * Verify message helper
+   */
+  const handleVerifyMessage = useCallback(
+    async ({ signedPayload, signature, publicKey }: { signedPayload: Uint8Array, signature: Uint8Array, publicKey: Uint8Array }): Promise<boolean> => {
+      // Convert Uint8Arrays to base64 strings for the helper
+      const signedPayloadB64 = Buffer.from(signedPayload).toString('base64');
+      const signatureB64 = Buffer.from(signature).toString('base64');
+      const publicKeyB64 = Buffer.from(publicKey).toString('base64');
+
+      return await verifySignatureBrowser({
+        signedPayload: signedPayloadB64,
+        signature: signatureB64,
+        publicKey: publicKeyB64
+      });
+    },
+    []
+  );
+
+
   // Get the smart wallet public key from the wallet if available
-  const smartWalletPubkey = wallet?.smartWallet 
-    ? new PublicKey(wallet.smartWallet) 
+  const smartWalletPubkey = wallet?.smartWallet
+    ? new PublicKey(wallet.smartWallet)
     : null;
 
   return {
@@ -98,5 +152,7 @@ export const useWallet = (): WalletHookInterface => {
     connect: handleConnect,
     disconnect: handleDisconnect,
     signAndSendTransaction: handleSignAndSendTransaction,
+    signMessage: handleSignMessage,
+    verifyMessage: handleVerifyMessage,
   };
 };

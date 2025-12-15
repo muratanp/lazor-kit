@@ -21,6 +21,7 @@ export interface SignResult {
   readonly signature: string;
   readonly clientDataJsonBase64: string;
   readonly authenticatorDataBase64: string;
+  readonly signedPayload: string;
 }
 
 export interface DialogManagerConfig {
@@ -83,8 +84,8 @@ export class DialogManager extends EventEmitter {
       // Set timeout for connection
       const timeoutId = setTimeout(() => {
         cleanup();
-        reject(new Error('Connection timed out after 30 seconds'));
-      }, 30000);
+        reject(new Error('Connection timed out after 60 seconds'));
+      }, 60000);
 
       // Clear timeout when resolved/rejected
       const originalResolve = resolve;
@@ -116,7 +117,7 @@ export class DialogManager extends EventEmitter {
    * @param message - Message to sign
    * @returns Promise that resolves with signature result
    */
-  async openSign(message: string, transaction: string, credentialId: string): Promise<SignResult> {
+  async openSign(message: string, transaction: string, credentialId: string, clusterSimulation?: 'devnet' | 'mainnet'): Promise<SignResult> {
     return new Promise<SignResult>((resolve, reject) => {
       const cleanup = () => {
         this.off('sign-result', signHandler);
@@ -160,7 +161,70 @@ export class DialogManager extends EventEmitter {
       const shouldUsePopup = this.shouldUsePopup('sign');
 
       const encodedMessage = encodeURIComponent(message);
-      const signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}&transaction=${encodeURIComponent(transaction)}&credentialId=${encodeURIComponent(credentialId)}`;
+      let signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}&transaction=${encodeURIComponent(transaction)}&credentialId=${encodeURIComponent(credentialId)}`;
+      if (clusterSimulation) {
+        signUrl += `&clusterSimulation=${clusterSimulation}`;
+      }
+      if (shouldUsePopup) {
+        this.openPopup(signUrl).catch(reject);
+      } else {
+        this.openSignDialog(signUrl).catch(reject);
+      }
+    });
+  }
+
+  /**
+   * Open portal message signing dialog
+   * @param message - Message to sign
+   * @param credentialId - Credential ID
+   * @returns Promise that resolves with signature result
+   */
+  async openSignMessage(message: string, credentialId: string): Promise<SignResult> {
+    return new Promise<SignResult>((resolve, reject) => {
+      const cleanup = () => {
+        this.off('sign-result', signHandler);
+        this.off('error', errorHandler);
+      };
+
+      const signHandler = (data: SignResult) => {
+        cleanup();
+        resolve(data);
+      };
+
+      const errorHandler = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+
+      this.on('sign-result', signHandler);
+      this.on('error', errorHandler);
+
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('Signing timed out after 60 seconds'));
+      }, 60000);
+
+      const originalResolve = resolve;
+      const originalReject = reject;
+      resolve = (value) => {
+        clearTimeout(timeoutId);
+        originalResolve(value);
+      };
+      reject = (reason) => {
+        clearTimeout(timeoutId);
+        originalReject(reason);
+      };
+
+      this._currentAction = API_ENDPOINTS.SIGN; // Using SIGN endpoint, assuming it handles arbitrary message if transaction param omitted or specific flag
+      // Assumption: We might need a specific action 'sign_message' if 'sign' expects transaction. 
+      // Given I can't check portal code, I will use 'sign' and pass message. 
+      // If the user provided verifyMessage logic implies standard passkey signing, the portal probably just needs the challenge.
+
+      const encodedMessage = encodeURIComponent(message);
+      // We pass empty transaction or skip it.
+      const signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}&credentialId=${encodeURIComponent(credentialId)}`;
+
+      const shouldUsePopup = this.shouldUsePopup('sign');
       if (shouldUsePopup) {
         this.openPopup(signUrl).catch(reject);
       } else {
@@ -662,6 +726,7 @@ export class DialogManager extends EventEmitter {
             signature: data.normalized,
             clientDataJsonBase64: data.clientDataJSONReturn,
             authenticatorDataBase64: data.authenticatorDataReturn,
+            signedPayload: data.msg
           };
           this.emit('sign-result', transformedDataSignResult);
           this.closeDialog();
@@ -777,3 +842,5 @@ export class DialogManager extends EventEmitter {
     this.logger.debug('Destroyed dialog manager');
   }
 }
+
+

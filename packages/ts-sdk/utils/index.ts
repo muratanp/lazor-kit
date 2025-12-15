@@ -2,3 +2,4 @@
 export * from './platform';
 export * from './logger';
 export * from './storage';
+export * from './verify';

@@ -34,7 +34,6 @@ export class StorageUtil {
       // Also store the timestamp for reference
       localStorage.setItem('CREDENTIALS_TIMESTAMP', credentials.timestamp.toString());
 
-      console.log('Credentials saved to local storage');
     } catch (error) {
       console.error('Failed to save credentials to local storage:', error);
     }

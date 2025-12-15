@@ -1,16 +1,12 @@
 /**
  * SDK Actions - Core wallet operations
  */
-
-import {
-    TransactionInstruction,
-} from '@solana/web3.js';
 import * as anchor from '@coral-xyz/anchor';
 import { DialogResult, SignResult } from '../portal';
 import { StorageManager, WalletInfo } from '../storage';
 import { Paymaster } from './Paymaster';
 import { SmartWalletAction, LazorkitClient, asCredentialHash, asPasskeyPublicKey, getBlockchainTimestamp } from '../contract';
-import { WalletState, ConnectOptions, DisconnectOptions, SignOptions, SignResponse } from '../types';
+import { WalletState, ConnectOptions, DisconnectOptions, SignResponse, SignAndSendTransactionPayload } from '../types';
 import {
     createDialogManager,
     getCredentialHash,
@@ -25,7 +21,7 @@ import {
 export const connectAction = async (
     get: () => WalletState,
     set: (state: Partial<WalletState>) => void,
-    options?: ConnectOptions
+    options?: ConnectOptions & { feeMode?: 'paymaster' | 'user' }
 ): Promise<WalletInfo> => {
     const { isConnecting, config } = get();
 
@@ -49,6 +45,10 @@ export const connectAction = async (
 
         try {
             const dialogResult: DialogResult = await dialogManager.openConnect();
+
+            // TODO: Handle 'user' feeMode logic in future
+            // For now, we proceed assuming paymaster usage for init or verification
+
             const paymaster = new Paymaster(config.paymasterConfig);
             const smartWallet = new LazorkitClient(get().connection);
 
@@ -110,16 +110,21 @@ export const disconnectAction = async (
     set: (state: Partial<WalletState>) => void,
     options?: DisconnectOptions
 ): Promise<void> => {
-    set({ isLoading: true });
+    // We don't need to check isLoading here, we force disconnect
 
     try {
         await StorageManager.clearWallet();
-        set({ wallet: null, error: null });
+        // Clear all state
+        set({
+            wallet: null,
+            error: null,
+            isConnecting: false,
+            isSigning: false,
+            isLoading: false
+        });
         options?.onSuccess?.();
     } catch (error: unknown) {
         return handleActionError(error, set, options?.onFail);
-    } finally {
-        set({ isLoading: false });
     }
 };
 
@@ -131,8 +136,7 @@ export const disconnectAction = async (
 export const signAndSendTransactionAction = async (
     get: () => WalletState,
     set: (state: Partial<WalletState>) => void,
-    instruction: TransactionInstruction,
-    options?: SignOptions
+    payload: SignAndSendTransactionPayload
 ): Promise<string> => {
     const { isSigning, connection, wallet, config } = get();
 
@@ -157,12 +161,15 @@ export const signAndSendTransactionAction = async (
         const feePayer = await paymaster.getPayer();
         const timestamp = await getBlockchainTimestamp(connection);
 
+        // Use provided ALTs directly
+        const addressLookupTables = payload.transactionOptions?.addressLookupTableAccounts || [];
+
         const message = await smartWallet.buildAuthorizationMessage({
             action: {
                 type: SmartWalletAction.CreateChunk,
                 args: {
                     policyInstruction: null,
-                    cpiInstructions: [instruction],
+                    cpiInstructions: payload.instructions,
                 },
             },
             payer: feePayer,
@@ -177,12 +184,15 @@ export const signAndSendTransactionAction = async (
             .replace(/\+/g, '-')
             .replace(/\//g, '_')
             .replace(/=+$/, '');
+
+        // For visual representation in portal, we ideally want to show the transaction.
+        // Construction a V0 transaction for display purposes (signed by fee payer initially for structure)
         const latest = await connection.getLatestBlockhash();
 
         const messageV0 = new anchor.web3.TransactionMessage({
             payerKey: feePayer,
             recentBlockhash: latest.blockhash,
-            instructions: [instruction],
+            instructions: payload.instructions,
         }).compileToV0Message();
 
         const transaction = new anchor.web3.VersionedTransaction(messageV0);
@@ -190,9 +200,10 @@ export const signAndSendTransactionAction = async (
         const base64Tx = Buffer.from(transaction.serialize()).toString("base64");
         const dialogManager = createDialogManager(config);
         const credentialIdBase64 = wallet.credentialId;
+        const clusterSimulation = payload.transactionOptions?.clusterSimulation;
 
         try {
-            const signResult: SignResult = await dialogManager.openSign(encodedChallenge, base64Tx, credentialIdBase64);
+            const signResult: SignResult = await dialogManager.openSign(encodedChallenge, base64Tx, credentialIdBase64, clusterSimulation);
             const signResponse: SignResponse = {
                 msg: encodedChallenge,
                 normalized: signResult.signature,
@@ -212,21 +223,30 @@ export const signAndSendTransactionAction = async (
                     authenticatorDataRaw64: signResponse.authenticatorDataReturn,
                 },
                 policyInstruction: null,
-                cpiInstructions: [instruction],
+                cpiInstructions: payload.instructions,
                 timestamp,
                 credentialHash,
-            }, { useVersionedTransaction: true });
+            }, {
+                useVersionedTransaction: true,
+                addressLookupTables: addressLookupTables,
+                computeUnitLimit: payload.transactionOptions?.computeUnitLimit
+            });
             const createChunkSignature = await paymaster.signAndSendVersionedTransaction(createChunkTransaction as anchor.web3.VersionedTransaction);
             await connection.confirmTransaction(createChunkSignature);
+
             const executeChunkTransaction = await smartWallet.executeChunkTxn({
                 payer: feePayer,
                 smartWallet: new anchor.web3.PublicKey(wallet.smartWallet),
-                cpiInstructions: [instruction],
-            }, { useVersionedTransaction: true });
+                cpiInstructions: payload.instructions,
+            }, {
+                useVersionedTransaction: true,
+                addressLookupTables: addressLookupTables,
+                computeUnitLimit: payload.transactionOptions?.computeUnitLimit
+            });
 
             const signature = await paymaster.signAndSendVersionedTransaction(executeChunkTransaction as anchor.web3.VersionedTransaction);
 
-            options?.onSuccess?.(signature);
+            payload.onSuccess?.(signature);
             return signature;
 
         } finally {
@@ -234,7 +254,53 @@ export const signAndSendTransactionAction = async (
         }
 
     } catch (error: unknown) {
-        return handleActionError(error, set, options?.onFail);
+        return handleActionError(error, set, payload.onFail);
+    } finally {
+        set({ isSigning: false });
+    }
+};
+
+/**
+ * Sign message action
+ */
+export const signMessageAction = async (
+    get: () => WalletState,
+    set: (state: Partial<WalletState>) => void,
+    message: string
+): Promise<{ signature: string, signedPayload: string }> => {
+    const { isSigning, wallet, config } = get();
+
+    if (isSigning) {
+        throw new Error('Already signing');
+    }
+
+    if (!wallet) {
+        throw new Error('No wallet connected');
+    }
+
+    set({ isSigning: true, error: null });
+
+    try {
+        const dialogManager = createDialogManager(config);
+
+        try {
+            // We reuse openSign or similar from DialogManager. 
+            // The DialogManager now has openSignMessage as per our plan (step 64)
+            const signResult = await dialogManager.openSignMessage(message, wallet.credentialId);
+
+            const signature = signResult.signature;
+            const signedPayload = signResult.signedPayload;
+            // If the user needs the full authentication response, we might need to adjust the return type,
+            // but the request asked for { signature }
+
+            return { signature, signedPayload };
+        } finally {
+            dialogManager.destroy();
+        }
+    } catch (error: unknown) {
+        // We don't have onSuccess/onFail in the simple signature, but we handle the error state
+        set({ error: error as Error });
+        throw error;
     } finally {
         set({ isSigning: false });
     }

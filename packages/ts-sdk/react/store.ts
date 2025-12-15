@@ -6,7 +6,8 @@
 import { Connection } from '@solana/web3.js';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { connectAction, disconnectAction, signAndSendTransactionAction } from '../core/wallet/actions';
+import { connectAction, disconnectAction, signAndSendTransactionAction, signMessageAction } from '../core/wallet/actions';
+
 import { WalletInfo, WalletConfig, storage } from '../core/storage';
 import { DEFAULTS, DEFAULT_COMMITMENT } from '../config';
 import { WalletState } from '../core/types';
@@ -79,9 +80,10 @@ export const useWalletStore = create<WalletState>()(
       },
 
       // Wallet actions
-      connect: () => connectAction(get, set),
+      connect: (options) => connectAction(get, set, options),
       disconnect: () => disconnectAction(set),
-      signAndSendTransaction: (instruction) => signAndSendTransactionAction(get, set, instruction),
+      signAndSendTransaction: (payload) => signAndSendTransactionAction(get, set, payload),
+      signMessage: (message) => signMessageAction(get, set, message),
     }),
     {
       name: 'lazorkit-wallet-store',

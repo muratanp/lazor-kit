@@ -16,23 +16,7 @@ import {
     TransactionSignature,
     // MessageAddressTableLookup,
 } from '@solana/web3.js';
-import {
-    Wallet,
-    WalletAccount,
-} from '@wallet-standard/base';
-import {
-    StandardConnectFeature,
-    StandardDisconnectFeature,
-    StandardEventsFeature,
-} from '@wallet-standard/features';
-import {
-    SolanaSignMessageFeature,
-    SolanaSignTransactionFeature,
-    SolanaSignAndSendTransactionFeature,
-} from '@solana/wallet-standard-features';
-import {
-    registerWallet,
-} from '@wallet-standard/wallet';
+
 import { DialogManager, DialogResult, SignResult } from '../portal';
 import { StorageManager, WalletInfo } from '../storage';
 import { KoraClient } from '@solana/kora';
@@ -41,12 +25,13 @@ import {
     asCredentialHash,
     asPasskeyPublicKey,
     SmartWalletAction,
-    getBlockchainTimestamp
+    getBlockchainTimestamp,
+    CredentialHash
 } from '../contract';
 import { getCredentialHash, getPasskeyPublicKey } from '../wallet/utils';
 import * as anchor from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
-import bs58 from 'bs58';
+
 
 // ============================================================================
 // Constants & Config
@@ -54,7 +39,7 @@ import bs58 from 'bs58';
 
 export const LazorkitWalletName = 'Lazorkit Wallet' as WalletName<'Lazorkit Wallet'>;
 
-const DEFAULT_CONFIG = {
+export const DEFAULT_CONFIG = {
     rpcUrl: 'https://api.devnet.solana.com',
     portalUrl: 'https://portal.lazorkit.com',
     paymasterConfig: {
@@ -116,71 +101,19 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
             // Check storage first
             const existingWallet = await StorageManager.getWallet();
             if (existingWallet) {
-                this._wallet = existingWallet;
-                this._publicKey = new PublicKey(existingWallet.smartWallet);
-                this.emit('connect', this._publicKey);
+                this._updateWalletState(existingWallet);
                 return;
             }
 
             // Initialize dialog manager
-            const dialogManager = new DialogManager({
-                portalUrl: this._config.portalUrl,
-                rpcUrl: this._config.rpcUrl,
-                paymasterUrl: this._config.paymasterConfig.paymasterUrl,
-            });
+            const dialogManager = this._createDialogManager();
 
             try {
                 const dialogResult: DialogResult = await dialogManager.openConnect();
-
-                // Setup connection and clients
-                const connection = new Connection(this._config.rpcUrl);
-                const paymaster = new KoraClient({
-                    rpcUrl: this._config.paymasterConfig.paymasterUrl,
-                    apiKey: this._config.paymasterConfig.apiKey,
-                });
-                const smartWallet = new LazorkitClient(connection);
-
-                const credentialHash = asCredentialHash(getCredentialHash(dialogResult.credentialId));
-                const smartWalletData = await smartWallet.getSmartWalletByCredentialHash(credentialHash);
-
-                let smartWalletAddress: string;
-                let passkeyPubkey: string;
-                if (!dialogResult.publicKey && smartWalletData) {
-                    passkeyPubkey = Buffer.from(smartWalletData.passkeyPubkey).toString('base64');
-                    localStorage.setItem('PUBLIC_KEY', passkeyPubkey);
-                } else {
-                    passkeyPubkey = dialogResult.publicKey;
-                }
-                if (smartWalletData) {
-                    smartWalletAddress = smartWalletData.smartWallet.toBase58();
-                } else {
-                    const feePayer = await paymaster.getPayerSigner();
-                    const initSmartWalletTxn = await smartWallet.createSmartWalletTxn({
-                        passkeyPublicKey: asPasskeyPublicKey(getPasskeyPublicKey(dialogResult.publicKey)),
-                        payer: new anchor.web3.PublicKey(feePayer.signer_address),
-                        credentialIdBase64: dialogResult.credentialId,
-                    });
-
-                    await paymaster.signAndSendTransaction({
-                        transaction: Buffer.from(initSmartWalletTxn.transaction.serialize({ requireAllSignatures: false })).toString('base64'),
-                        signer_key: feePayer.signer_address,
-                    });
-                    smartWalletAddress = initSmartWalletTxn.smartWallet.toBase58();
-                }
-
-                const walletInfo: WalletInfo = {
-                    credentialId: dialogResult.credentialId,
-                    passkeyPubkey: getPasskeyPublicKey(passkeyPubkey),
-                    expo: 'web',
-                    platform: navigator.platform,
-                    smartWallet: smartWalletAddress,
-                    walletDevice: '',
-                };
+                const walletInfo = await this._ensureWalletOnChain(dialogResult);
 
                 await StorageManager.saveWallet(walletInfo);
-                this._wallet = walletInfo;
-                this._publicKey = new PublicKey(smartWalletAddress);
-                this.emit('connect', this._publicKey);
+                this._updateWalletState(walletInfo);
 
             } finally {
                 dialogManager.destroy();
@@ -192,6 +125,68 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
         } finally {
             this._connecting = false;
         }
+    }
+
+    private _updateWalletState(wallet: WalletInfo) {
+        this._wallet = wallet;
+        this._publicKey = new PublicKey(wallet.smartWallet);
+        this.emit('connect', this._publicKey);
+    }
+
+    private _createDialogManager(): DialogManager {
+        return new DialogManager({
+            portalUrl: this._config.portalUrl,
+            rpcUrl: this._config.rpcUrl,
+            paymasterUrl: this._config.paymasterConfig.paymasterUrl,
+        });
+    }
+
+    private async _ensureWalletOnChain(dialogResult: DialogResult): Promise<WalletInfo> {
+        const connection = new Connection(this._config.rpcUrl);
+        const paymaster = new KoraClient({
+            rpcUrl: this._config.paymasterConfig.paymasterUrl,
+            apiKey: this._config.paymasterConfig.apiKey,
+        });
+        const smartWallet = new LazorkitClient(connection);
+
+        const credentialHash = asCredentialHash(getCredentialHash(dialogResult.credentialId));
+        const smartWalletData = await smartWallet.getSmartWalletByCredentialHash(credentialHash);
+
+        let smartWalletAddress: string;
+        let passkeyPubkey: string;
+
+        if (!dialogResult.publicKey && smartWalletData) {
+            passkeyPubkey = Buffer.from(smartWalletData.passkeyPubkey).toString('base64');
+            localStorage.setItem('PUBLIC_KEY', passkeyPubkey);
+        } else {
+            passkeyPubkey = dialogResult.publicKey;
+        }
+
+        if (smartWalletData) {
+            smartWalletAddress = smartWalletData.smartWallet.toBase58();
+        } else {
+            const feePayer = await paymaster.getPayerSigner();
+            const initSmartWalletTxn = await smartWallet.createSmartWalletTxn({
+                passkeyPublicKey: asPasskeyPublicKey(getPasskeyPublicKey(dialogResult.publicKey)),
+                payer: new anchor.web3.PublicKey(feePayer.signer_address),
+                credentialIdBase64: dialogResult.credentialId,
+            });
+
+            await paymaster.signAndSendTransaction({
+                transaction: Buffer.from(initSmartWalletTxn.transaction.serialize({ requireAllSignatures: false })).toString('base64'),
+                signer_key: feePayer.signer_address,
+            });
+            smartWalletAddress = initSmartWalletTxn.smartWallet.toBase58();
+        }
+
+        return {
+            credentialId: dialogResult.credentialId,
+            passkeyPubkey: getPasskeyPublicKey(passkeyPubkey),
+            expo: 'web',
+            platform: navigator.platform,
+            smartWallet: smartWalletAddress,
+            walletDevice: '',
+        };
     }
 
     async disconnect(): Promise<void> {
@@ -207,156 +202,33 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
         try {
             if (!this._wallet || !this._publicKey) throw new WalletDisconnectedError();
 
-            // We ignore the passed connection for smart wallet operations as we need to use our own configured connection/paymaster
-            const clientConnection = new Connection(this._config.rpcUrl);
-
-            let instructions: TransactionInstruction[] = [];
-            //let addressLookupTableAccounts: MessageAddressTableLookup[] = [];
-            if ('version' in transaction) {
-                console.log("version", transaction.message.addressTableLookups);
-                instructions = transaction.message.compiledInstructions.map((ix) => {
-                    // addressLookupTableAccounts = transaction.message.addressTableLookups;
-                    return new TransactionInstruction({
-                        keys: ix.accountKeyIndexes.map((keyIndex) => {
-                            return {
-                                pubkey: transaction.message.staticAccountKeys[keyIndex],
-                                isSigner: transaction.message.isAccountSigner(keyIndex),
-                                isWritable: transaction.message.isAccountWritable(keyIndex),
-                            };
-                        }),
-                        programId: new PublicKey(transaction.message.staticAccountKeys[ix.programIdIndex]),
-                        data: Buffer.from(ix.data),
-                    });
-                });
-            } else {
-                instructions = [...transaction.instructions];
-            }
-
+            const instructions = this._prepareInstructions(transaction);
             if (instructions.length === 0) throw new WalletSignTransactionError('No instructions to sign');
 
-            const paymaster = new KoraClient({
-                rpcUrl: this._config.paymasterConfig.paymasterUrl,
-                apiKey: this._config.paymasterConfig.apiKey,
-            });
-            const smartWallet = new LazorkitClient(clientConnection);
-
-            const feePayer = await paymaster.getPayerSigner();
-            const timestamp = await getBlockchainTimestamp(clientConnection);
-
-            // const mockTx = new anchor.web3.Transaction();
-            // mockTx.recentBlockhash = (await clientConnection.getLatestBlockhash()).blockhash;
-            // mockTx.feePayer = new anchor.web3.PublicKey(feePayer.signer_address);
-
-            // const feeTransaction = await paymaster.getPaymentInstruction({
-            //     transaction: Buffer.from(mockTx.serialize({ requireAllSignatures: false })).toString('base64'),
-            //     signer_key: feePayer.signer_address,
-            //     source_wallet: this._wallet.smartWallet,
-            //     fee_token: NATIVE_MINT_STRING
-            // });
-
-            // // Handle spl-token import compatibility (CommonJS vs ESM)
-            // const getAssociatedTokenAddressSync = (splToken as any).default?.getAssociatedTokenAddressSync || splToken.getAssociatedTokenAddressSync;
-            // const createTransferInstruction = (splToken as any).default?.createTransferInstruction || splToken.createTransferInstruction;
-
-            // const paymentATA = getAssociatedTokenAddressSync(
-            //     new anchor.web3.PublicKey(USDC_MINT_STRING),
-            //     new anchor.web3.PublicKey(feePayer.signer_address),
-            // );
-
-            // const paymentIx = createTransferInstruction(
-            //     getAssociatedTokenAddressSync(
-            //         new anchor.web3.PublicKey(USDC_MINT_STRING),
-            //         new anchor.web3.PublicKey(this._wallet.smartWallet),
-            //         true,
-            //     ),
-            //     paymentATA,
-            //     new anchor.web3.PublicKey(this._wallet.smartWallet),
-            //     feeTransaction.payment_amount,
-            // );
-
-            // instructions.push(paymentIx);
+            const clients = this._initializeClients();
+            const feePayer = await clients.paymaster.getPayerSigner();
+            const timestamp = await getBlockchainTimestamp(clients.connection);
             const credentialHash = asCredentialHash(getCredentialHash(this._wallet.credentialId));
 
-            const message = await smartWallet.buildAuthorizationMessage({
-                action: {
-                    type: SmartWalletAction.CreateChunk,
-                    args: {
-                        policyInstruction: null,
-                        cpiInstructions: instructions,
-                    },
-                },
-                payer: new anchor.web3.PublicKey(feePayer.signer_address),
-                smartWallet: this._publicKey,
-                passkeyPublicKey: this._wallet.passkeyPubkey,
-                timestamp: new anchor.BN(timestamp),
-                credentialHash: credentialHash,
-            });
-
-            const encodedChallenge = Buffer.from(message)
-                .toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
-
-            const dialogManager = new DialogManager({
-                portalUrl: this._config.portalUrl,
-                rpcUrl: this._config.rpcUrl,
-                paymasterUrl: this._config.paymasterConfig.paymasterUrl,
-            });
-
-            let signResult: SignResult;
-            try {
-                const latest = await clientConnection.getLatestBlockhash();
-
-                const messageV0 = new anchor.web3.TransactionMessage({
-                    payerKey: new anchor.web3.PublicKey(feePayer.signer_address),
-                    recentBlockhash: latest.blockhash,
-                    instructions: instructions,
-                }).compileToV0Message();
-
-                const transaction = new anchor.web3.VersionedTransaction(messageV0);
-
-                const base64Tx = Buffer.from(transaction.serialize()).toString("base64");
-                signResult = await dialogManager.openSign(encodedChallenge, base64Tx, this._wallet.credentialId);
-            } finally {
-                dialogManager.destroy();
-            }
-
-            const createDeferredExecutionTxn = await smartWallet.createChunkTxn({
-                payer: new anchor.web3.PublicKey(feePayer.signer_address),
-                smartWallet: this._publicKey,
-                passkeySignature: {
-                    passkeyPublicKey: asPasskeyPublicKey(this._wallet.passkeyPubkey),
-                    signature64: signResult.signature,
-                    clientDataJsonRaw64: signResult.clientDataJsonBase64,
-                    authenticatorDataRaw64: signResult.authenticatorDataBase64,
-                },
-                policyInstruction: null,
-                cpiInstructions: instructions,
+            const message = await this._buildAuthorizationMessage(
+                clients.smartWallet,
+                instructions,
+                feePayer.signer_address,
                 timestamp,
-                credentialHash,
-            }, { useVersionedTransaction: true });
-
-            await paymaster.signAndSendTransaction({
-                transaction: Buffer.from((createDeferredExecutionTxn as VersionedTransaction).serialize()).toString('base64'),
-                signer_key: feePayer.signer_address,
-            });
-
-            const executeDeferredTransactionTxn = await smartWallet.executeChunkTxn(
-                {
-                    payer: new anchor.web3.PublicKey(feePayer.signer_address),
-                    smartWallet: this._publicKey,
-                    cpiInstructions: instructions,
-                },
-                { useVersionedTransaction: true }
+                credentialHash
             );
 
-            const signature = (await paymaster.signAndSendTransaction({
-                transaction: Buffer.from((executeDeferredTransactionTxn as VersionedTransaction).serialize()).toString('base64'),
-                signer_key: feePayer.signer_address,
-            })) as any;
+            const latest = await clients.connection.getLatestBlockhash();
+            const signResult = await this._signWithDialog(message, instructions, latest.blockhash, feePayer.signer_address);
 
-            return signature.signature;
+            return await this._executeSmartWalletTransaction(
+                clients,
+                instructions,
+                signResult,
+                feePayer.signer_address,
+                timestamp,
+                credentialHash
+            );
 
         } catch (error: any) {
             this.emit('error', error);
@@ -374,159 +246,147 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
 
     async signMessage(message: Uint8Array): Promise<Uint8Array> {
         try {
-            const connection = new anchor.web3.Connection(this._config.rpcUrl);
             if (!this._wallet || !this._publicKey) throw new WalletDisconnectedError();
 
-            const messageBase64 = Buffer.from(message).toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/g, '');
+            const clients = this._initializeClients();
+            const latest = await clients.connection.getLatestBlockhash();
 
-            const dialogManager = new DialogManager({
-                portalUrl: this._config.portalUrl,
-                rpcUrl: this._config.rpcUrl,
-                paymasterUrl: this._config.paymasterConfig.paymasterUrl,
-            });
-            const latest = await connection.getLatestBlockhash();
-            const messageV0 = new anchor.web3.TransactionMessage({
-                payerKey: this._publicKey,
-                recentBlockhash: latest.blockhash,
-                instructions: [],
-            }).compileToV0Message();
+            const signResult = await this._signWithDialog(message, [], latest.blockhash, this._publicKey.toBase58());
+            return new Uint8Array(Buffer.from(signResult.signature, 'base64'));
 
-            const transaction = new anchor.web3.VersionedTransaction(messageV0);
-
-            const base64Tx = Buffer.from(transaction.serialize()).toString("base64");
-            try {
-                const signResult: SignResult = await dialogManager.openSign(messageBase64, base64Tx, this._wallet.credentialId);
-                return new Uint8Array(Buffer.from(signResult.signature, 'base64'));
-            } finally {
-                dialogManager.destroy();
-            }
         } catch (error: any) {
             this.emit('error', error);
             throw error;
         }
+    }
+
+    private _initializeClients() {
+        const connection = new Connection(this._config.rpcUrl);
+        const paymaster = new KoraClient({
+            rpcUrl: this._config.paymasterConfig.paymasterUrl,
+            apiKey: this._config.paymasterConfig.apiKey,
+        });
+        const smartWallet = new LazorkitClient(connection);
+        return { connection, paymaster, smartWallet };
+    }
+
+    private _prepareInstructions(transaction: Transaction | VersionedTransaction): TransactionInstruction[] {
+        if ('version' in transaction) {
+            return transaction.message.compiledInstructions.map((ix) => {
+                return new TransactionInstruction({
+                    keys: ix.accountKeyIndexes.map((keyIndex) => {
+                        return {
+                            pubkey: transaction.message.staticAccountKeys[keyIndex],
+                            isSigner: transaction.message.isAccountSigner(keyIndex),
+                            isWritable: transaction.message.isAccountWritable(keyIndex),
+                        };
+                    }),
+                    programId: new PublicKey(transaction.message.staticAccountKeys[ix.programIdIndex]),
+                    data: Buffer.from(ix.data),
+                });
+            });
+        } else {
+            return [...transaction.instructions];
+        }
+    }
+
+    private async _buildAuthorizationMessage(
+        smartWallet: LazorkitClient,
+        instructions: TransactionInstruction[],
+        feePayerAddress: string,
+        timestamp: number,
+        credentialHash: CredentialHash
+    ): Promise<Uint8Array> {
+        return await smartWallet.buildAuthorizationMessage({
+            action: {
+                type: SmartWalletAction.CreateChunk,
+                args: {
+                    policyInstruction: null,
+                    cpiInstructions: instructions,
+                },
+            },
+            payer: new anchor.web3.PublicKey(feePayerAddress),
+            smartWallet: this._publicKey!,
+            passkeyPublicKey: this._wallet!.passkeyPubkey,
+            timestamp: new anchor.BN(timestamp),
+            credentialHash: credentialHash,
+        });
+    }
+
+    private async _signWithDialog(
+        message: Uint8Array,
+        instructions: TransactionInstruction[],
+        recentBlockhash: string,
+        payerKey: string
+    ): Promise<SignResult> {
+        const messageBase64 = Buffer.from(message).toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, ''); // Fix base64url padding
+
+        const dialogManager = this._createDialogManager();
+        try {
+            const messageV0 = new anchor.web3.TransactionMessage({
+                payerKey: new anchor.web3.PublicKey(payerKey),
+                recentBlockhash: recentBlockhash,
+                instructions: instructions,
+            }).compileToV0Message();
+
+            const transaction = new anchor.web3.VersionedTransaction(messageV0);
+            const base64Tx = Buffer.from(transaction.serialize()).toString("base64");
+
+            return await dialogManager.openSign(messageBase64, base64Tx, this._wallet!.credentialId);
+        } finally {
+            dialogManager.destroy();
+        }
+    }
+
+    private async _executeSmartWalletTransaction(
+        clients: { paymaster: KoraClient, smartWallet: LazorkitClient },
+        instructions: TransactionInstruction[],
+        signResult: SignResult,
+        feePayerAddress: string,
+        timestamp: number,
+        credentialHash: CredentialHash
+    ): Promise<TransactionSignature> {
+        const createDeferredExecutionTxn = await clients.smartWallet.createChunkTxn({
+            payer: new anchor.web3.PublicKey(feePayerAddress),
+            smartWallet: this._publicKey!,
+            passkeySignature: {
+                passkeyPublicKey: asPasskeyPublicKey(this._wallet!.passkeyPubkey),
+                signature64: signResult.signature,
+                clientDataJsonRaw64: signResult.clientDataJsonBase64,
+                authenticatorDataRaw64: signResult.authenticatorDataBase64,
+            },
+            policyInstruction: null,
+            cpiInstructions: instructions,
+            timestamp,
+            credentialHash,
+        }, { useVersionedTransaction: true });
+
+        await clients.paymaster.signAndSendTransaction({
+            transaction: Buffer.from((createDeferredExecutionTxn as VersionedTransaction).serialize()).toString('base64'),
+            signer_key: feePayerAddress,
+        });
+
+        const executeDeferredTransactionTxn = await clients.smartWallet.executeChunkTxn(
+            {
+                payer: new anchor.web3.PublicKey(feePayerAddress),
+                smartWallet: this._publicKey!,
+                cpiInstructions: instructions,
+            },
+            { useVersionedTransaction: true }
+        );
+
+        const signature = (await clients.paymaster.signAndSendTransaction({
+            transaction: Buffer.from((executeDeferredTransactionTxn as VersionedTransaction).serialize()).toString('base64'),
+            signer_key: feePayerAddress,
+        })) as any;
+
+        return signature.signature;
     }
 }
 
 // ============================================================================
 // Wallet Standard Implementation
 // ============================================================================
-
-export function registerLazorkitWallet(config?: Partial<typeof DEFAULT_CONFIG>) {
-    registerWallet(new LazorkitWalletStandard(config));
-}
-
-class LazorkitWalletStandard implements Wallet {
-    readonly version = '1.0.0';
-    readonly name = LazorkitWalletName;
-    readonly icon = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48Y2lyY2xlIGN4PSI2NCIgY3k9IjY0IiByPSI2NCIgZmlsbD0iIzAwMDAwMCIvPjwvc3ZnPg==';
-
-    private _adapter: LazorkitWalletAdapter;
-    private _account: WalletAccount | null = null;
-    private _listeners: Record<string, Function[]> = {};
-
-    constructor(config?: Partial<typeof DEFAULT_CONFIG>) {
-        this._adapter = new LazorkitWalletAdapter(config);
-        this._adapter.on('connect', (publicKey: PublicKey) => {
-            this._account = {
-                address: publicKey.toBase58(),
-                publicKey: publicKey.toBytes(),
-                chains: ['solana:mainnet', 'solana:devnet', 'solana:testnet'],
-                features: [
-                    'solana:signAndSendTransaction',
-                    'solana:signTransaction',
-                    'solana:signMessage',
-                ],
-            };
-            this._emit('change', { accounts: [this._account] });
-        });
-        this._adapter.on('disconnect', () => {
-            this._account = null;
-            this._emit('change', { accounts: [] });
-        });
-    }
-
-    get accounts() {
-        return this._account ? [this._account] : [];
-    }
-
-    get chains() {
-        return ['solana:mainnet', 'solana:devnet', 'solana:testnet'] as const;
-    }
-
-    get features(): StandardConnectFeature &
-        StandardDisconnectFeature &
-        StandardEventsFeature &
-        SolanaSignAndSendTransactionFeature &
-        SolanaSignTransactionFeature &
-        SolanaSignMessageFeature {
-        return {
-            'standard:connect': {
-                version: '1.0.0',
-                connect: async () => {
-                    await this._adapter.connect();
-                    return { accounts: this.accounts };
-                },
-            },
-            'standard:disconnect': {
-                version: '1.0.0',
-                disconnect: async () => {
-                    await this._adapter.disconnect();
-                },
-            },
-            'standard:events': {
-                version: '1.0.0',
-                on: (event: any, listener: any) => {
-                    this._listeners[event] = this._listeners[event] || [];
-                    this._listeners[event].push(listener);
-                    return () => {
-                        this._listeners[event] = this._listeners[event]?.filter((l: any) => l !== listener) || [];
-                    };
-                },
-            },
-            'solana:signAndSendTransaction': {
-                version: '1.0.0',
-                supportedTransactionVersions: ['legacy', 0],
-                signAndSendTransaction: async (...inputs: any[]) => {
-                    const results = [];
-                    for (const input of inputs) {
-                        const tx = VersionedTransaction.deserialize(input.transaction);
-                        const signature = await this._adapter.sendTransaction(tx);
-                        results.push({ signature: bs58.decode(signature) });
-                    }
-                    return results as any;
-                },
-            },
-            'solana:signTransaction': {
-                version: '1.0.0',
-                supportedTransactionVersions: ['legacy', 0],
-                signTransaction: async (..._inputs: any[]) => {
-                    // Not supported
-                    throw new Error('signTransaction not supported');
-                },
-            },
-            'solana:signMessage': {
-                version: '1.0.0',
-                signMessage: async (...inputs: any[]) => {
-                    const results = [];
-                    for (const input of inputs) {
-                        const signature = await this._adapter.signMessage(input.message);
-                        results.push({
-                            message: input.message,
-                            signature,
-                            signedMessage: input.message,
-                        });
-                    }
-                    return results as any;
-                },
-            },
-        };
-    }
-
-    private _emit(event: string, ...args: any[]) {
-        // @ts-ignore
-        this._listeners[event]?.forEach((l: any) => l(...args));
-    }
-}

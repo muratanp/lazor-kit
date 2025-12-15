@@ -25,34 +25,6 @@ export function prependComputeUnitLimit(
 }
 
 /**
- * Builds a versioned transaction (v0) from instructions
- */
-export async function buildVersionedTransaction(
-  connection: anchor.web3.Connection,
-  payer: anchor.web3.PublicKey,
-  instructions: anchor.web3.TransactionInstruction[]
-): Promise<anchor.web3.VersionedTransaction> {
-  const result = await buildTransaction(connection, payer, instructions, {
-    useVersionedTransaction: true,
-  });
-  return result.transaction as anchor.web3.VersionedTransaction;
-}
-
-/**
- * Builds a legacy transaction from instructions
- */
-export async function buildLegacyTransaction(
-  connection: anchor.web3.Connection,
-  payer: anchor.web3.PublicKey,
-  instructions: anchor.web3.TransactionInstruction[]
-): Promise<anchor.web3.Transaction> {
-  const result = await buildTransaction(connection, payer, instructions, {
-    useVersionedTransaction: false,
-  });
-  return result.transaction as anchor.web3.Transaction;
-}
-
-/**
  * Combines authentication verification instruction with smart wallet instructions
  */
 export function combineInstructionsWithAuth(
@@ -115,7 +87,10 @@ export async function buildTransaction(
 
   if (shouldUseVersioned) {
     // Build versioned transaction
-    const lookupTables = addressLookupTable ? [addressLookupTable] : [];
+    const lookupTables = [
+      ...(addressLookupTable ? [addressLookupTable] : []),
+      ...(options.addressLookupTables || [])
+    ];
 
     const message = new anchor.web3.TransactionMessage({
       payerKey: payer,

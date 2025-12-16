@@ -1,16 +1,24 @@
 # LazorKit
 
-The open-source smart wallet infrastructure for Solana.
+> [!CAUTION]
+> **This is a pre-audit version. Do not use in production level environments.**
 
-> [!WARNING]
->  Do not use in production. This repository is highly experimental.
+## Why LazorKit?
+
+LazorKit allows you to build **Passkey-native** Solana applications.
+
+- **Seedless**: Onboard users instantly with Passkeys (FaceID, TouchID, Windows Hello)
+- **Gasless**: Sponsored transactions via Paymaster
+- **Smart**: Programmable account logic (PDAs)
 
 ## Packages
 
-This repo contains several packages:
+This monorepo contains the core infrastructure:
 
-- `@lazorkit/wallet`: Core SDK for Solana wallet functionality
-- `program`: Core smart contract framework for smart wallet
+- **`@lazorkit/wallet`** (`packages/ts-sdk`): The core TypeScript/React SDK for web.
+- **`lazorkit-program`** (`packages/program`): The on-chain smart contract framework.
+
+> **Note**: The React Native adapter is available in a separate repository: [`@lazorkit/wallet-mobile-adapter`](https://github.com/lazor-kit/wallet-mobile-adapter).
 
 ## Getting Started
 
@@ -90,10 +98,8 @@ pnpm dev:all
 ```
 lazor-kit/
 ├── packages/
-│   ├── sdk/          # Core SDK package
-│   ├── portal/       # Passkey sharing hub 
-│   ├── program/      # Core smart contract framework for smart wallet 
-│   └── docs/         # Documentation
+│   ├── ts-sdk/       # Core React SDK & Wallet Adapter
+│   └── program/      # Smart Contracts (Anchor)
 └── package.json      # Root configuration
 ```
 

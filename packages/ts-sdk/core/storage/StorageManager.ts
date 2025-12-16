@@ -16,7 +16,7 @@ export interface WalletInfo {
   readonly accountName?: string;
 }
 
-import { PaymasterConfig } from '../wallet/Paymaster';
+import { PaymasterConfig } from '../paymaster/paymaster';
 
 export interface WalletConfig {
   readonly portalUrl: string;

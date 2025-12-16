@@ -4,7 +4,7 @@
 import * as anchor from '@coral-xyz/anchor';
 import { DialogResult, SignResult } from '../portal';
 import { StorageManager, WalletInfo } from '../storage';
-import { Paymaster } from './Paymaster';
+import { Paymaster } from '../paymaster/paymaster';
 import { SmartWalletAction, LazorkitClient, asCredentialHash, asPasskeyPublicKey, getBlockchainTimestamp } from '../contract';
 import { WalletState, ConnectOptions, DisconnectOptions, SignResponse, SignAndSendTransactionPayload } from '../types';
 import {
@@ -110,7 +110,6 @@ export const disconnectAction = async (
     set: (state: Partial<WalletState>) => void,
     options?: DisconnectOptions
 ): Promise<void> => {
-    // We don't need to check isLoading here, we force disconnect
 
     try {
         await StorageManager.clearWallet();
@@ -160,9 +159,6 @@ export const signAndSendTransactionAction = async (
 
         const feePayer = await paymaster.getPayer();
         const timestamp = await getBlockchainTimestamp(connection);
-
-        // Use provided ALTs directly
-        const addressLookupTables = payload.transactionOptions?.addressLookupTableAccounts || [];
 
         const message = await smartWallet.buildAuthorizationMessage({
             action: {
@@ -226,25 +222,24 @@ export const signAndSendTransactionAction = async (
                 cpiInstructions: payload.instructions,
                 timestamp,
                 credentialHash,
-            }, {
-                useVersionedTransaction: true,
-                addressLookupTables: addressLookupTables,
-                computeUnitLimit: payload.transactionOptions?.computeUnitLimit
             });
-            const createChunkSignature = await paymaster.signAndSendVersionedTransaction(createChunkTransaction as anchor.web3.VersionedTransaction);
+            const createChunkSignature = await paymaster.signAndSend(createChunkTransaction as anchor.web3.Transaction);
             await connection.confirmTransaction(createChunkSignature);
-
+            const addressLookupTables = payload.transactionOptions?.addressLookupTableAccounts || [];
             const executeChunkTransaction = await smartWallet.executeChunkTxn({
                 payer: feePayer,
                 smartWallet: new anchor.web3.PublicKey(wallet.smartWallet),
                 cpiInstructions: payload.instructions,
             }, {
-                useVersionedTransaction: true,
                 addressLookupTables: addressLookupTables,
                 computeUnitLimit: payload.transactionOptions?.computeUnitLimit
             });
-
-            const signature = await paymaster.signAndSendVersionedTransaction(executeChunkTransaction as anchor.web3.VersionedTransaction);
+            let signature: string;
+            if (addressLookupTables.length > 0) {
+                signature = await paymaster.signAndSendVersionedTransaction(executeChunkTransaction as anchor.web3.VersionedTransaction);
+            } else {
+                signature = await paymaster.signAndSend(executeChunkTransaction as anchor.web3.Transaction);
+            }
 
             payload.onSuccess?.(signature);
             return signature;

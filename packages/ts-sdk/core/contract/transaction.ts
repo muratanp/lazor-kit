@@ -66,8 +66,7 @@ export async function buildTransaction(
   options: TransactionBuilderOptions = {}
 ): Promise<TransactionBuilderResult> {
   const {
-    useVersionedTransaction,
-    addressLookupTable,
+    addressLookupTables,
     recentBlockhash: customBlockhash,
     computeUnitLimit,
   } = options;
@@ -77,21 +76,15 @@ export async function buildTransaction(
     instructions,
     computeUnitLimit
   );
-
-  // Auto-detect: if addressLookupTable is provided, use versioned transaction
-  const shouldUseVersioned = useVersionedTransaction ?? !!addressLookupTable;
+  const lookupTables = addressLookupTables ? addressLookupTables : [];
 
   // Get recent blockhash
   const recentBlockhash =
     customBlockhash || (await connection.getLatestBlockhash()).blockhash;
 
-  if (shouldUseVersioned) {
+  if (lookupTables.length > 0) {
     // Build versioned transaction
-    const lookupTables = [
-      ...(addressLookupTable ? [addressLookupTable] : []),
-      ...(options.addressLookupTables || [])
-    ];
-
+    console.log('lookupTables in buildTransaction', lookupTables);
     const message = new anchor.web3.TransactionMessage({
       payerKey: payer,
       recentBlockhash,

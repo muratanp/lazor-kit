@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 import { useWalletStore } from './store';
 import { DEFAULTS } from '../config';
 
-import { PaymasterConfig } from '../core/wallet/Paymaster';
+import { PaymasterConfig } from '../core/paymaster/paymaster';
 
 export interface LazorkitProviderProps {
   children: ReactNode;

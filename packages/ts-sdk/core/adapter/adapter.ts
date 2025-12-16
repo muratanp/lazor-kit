@@ -14,6 +14,7 @@ import {
     Connection,
     TransactionInstruction,
     TransactionSignature,
+    AddressLookupTableAccount,
     // MessageAddressTableLookup,
 } from '@solana/web3.js';
 
@@ -39,12 +40,21 @@ import { Buffer } from 'buffer';
 
 export const LazorkitWalletName = 'Lazorkit Wallet' as WalletName<'Lazorkit Wallet'>;
 
-export const DEFAULT_CONFIG = {
+export interface LazorkitAdapterConfig {
+    rpcUrl: string;
+    portalUrl: string;
+    paymasterConfig: {
+        paymasterUrl: string;
+        apiKey?: string;
+    };
+    clusterSimulation?: 'devnet' | 'mainnet';
+}
+
+export const DEFAULT_CONFIG: LazorkitAdapterConfig = {
     rpcUrl: 'https://api.devnet.solana.com',
-    portalUrl: 'https://portal.lazorkit.com',
+    portalUrl: 'https://portal.lazor.sh',
     paymasterConfig: {
         paymasterUrl: 'https://kora.devnet.lazorkit.com',
-        apiKey: ''
     },
 };
 
@@ -59,7 +69,7 @@ export interface LazorkitSendTransactionOptions extends SendTransactionOptions {
 export class LazorkitWalletAdapter extends BaseWalletAdapter {
     name: WalletName<'Lazorkit Wallet'> = LazorkitWalletName;
     url = 'https://lazorkit.com';
-    icon = 'data:image/jpeg;base64,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'
+    icon = 'data:image/png;base64,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'
     supportedTransactionVersions: ReadonlySet<any> = new Set(['legacy', 0]);
 
     private _publicKey: PublicKey | null = null;
@@ -69,9 +79,9 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
             : WalletReadyState.Installed;
     private _connecting: boolean = false;
     private _wallet: WalletInfo | null = null;
-    private _config = DEFAULT_CONFIG;
+    private _config: LazorkitAdapterConfig = DEFAULT_CONFIG;
 
-    constructor(config?: Partial<typeof DEFAULT_CONFIG>) {
+    constructor(config?: Partial<LazorkitAdapterConfig>) {
         super();
         if (config) {
             this._config = { ...this._config, ...config };
@@ -204,8 +214,22 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
 
             const instructions = this._prepareInstructions(transaction);
             if (instructions.length === 0) throw new WalletSignTransactionError('No instructions to sign');
-
             const clients = this._initializeClients();
+            let addressLookupTableAccounts: AddressLookupTableAccount[] = [];
+            if ('version' in transaction) {
+                const lookups = transaction.message.addressTableLookups;
+                addressLookupTableAccounts = await Promise.all(
+                    lookups.map(async (lookup) => {
+                        const acc = await clients.connection.getAccountInfo(lookup.accountKey);
+                        if (!acc) throw new Error("Lookup table not found");
+
+                        return new AddressLookupTableAccount({
+                            key: lookup.accountKey,
+                            state: AddressLookupTableAccount.deserialize(acc.data),
+                        });
+                    })
+                );
+            }
             const feePayer = await clients.paymaster.getPayerSigner();
             const timestamp = await getBlockchainTimestamp(clients.connection);
             const credentialHash = asCredentialHash(getCredentialHash(this._wallet.credentialId));
@@ -215,7 +239,7 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
                 instructions,
                 feePayer.signer_address,
                 timestamp,
-                credentialHash
+                credentialHash,
             );
 
             const latest = await clients.connection.getLatestBlockhash();
@@ -227,7 +251,8 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
                 signResult,
                 feePayer.signer_address,
                 timestamp,
-                credentialHash
+                credentialHash,
+                addressLookupTableAccounts,
             );
 
         } catch (error: any) {
@@ -245,18 +270,23 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
     }
 
     async signMessage(message: Uint8Array): Promise<Uint8Array> {
+        const dialogManager = this._createDialogManager();
         try {
             if (!this._wallet || !this._publicKey) throw new WalletDisconnectedError();
+            const messageBase64 = Buffer.from(message).toString('base64')
+            const signResult = await dialogManager.openSign(messageBase64, '', this._wallet!.credentialId, this._config.clusterSimulation);
 
-            const clients = this._initializeClients();
-            const latest = await clients.connection.getLatestBlockhash();
+            const encoded = JSON.stringify({
+                signature: signResult.signature,
+                signedPayload: signResult.signedPayload
+            });
 
-            const signResult = await this._signWithDialog(message, [], latest.blockhash, this._publicKey.toBase58());
-            return new Uint8Array(Buffer.from(signResult.signature, 'base64'));
-
+            return new Uint8Array(Buffer.from(encoded));
         } catch (error: any) {
             this.emit('error', error);
             throw error;
+        } finally {
+            dialogManager.destroy();
         }
     }
 
@@ -322,7 +352,7 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
         const messageBase64 = Buffer.from(message).toString('base64')
             .replace(/\+/g, '-')
             .replace(/\//g, '_')
-            .replace(/=+$/g, ''); // Fix base64url padding
+            .replace(/=+$/g, '');
 
         const dialogManager = this._createDialogManager();
         try {
@@ -335,19 +365,20 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
             const transaction = new anchor.web3.VersionedTransaction(messageV0);
             const base64Tx = Buffer.from(transaction.serialize()).toString("base64");
 
-            return await dialogManager.openSign(messageBase64, base64Tx, this._wallet!.credentialId);
+            return await dialogManager.openSign(messageBase64, base64Tx, this._wallet!.credentialId, this._config.clusterSimulation);
         } finally {
             dialogManager.destroy();
         }
     }
 
     private async _executeSmartWalletTransaction(
-        clients: { paymaster: KoraClient, smartWallet: LazorkitClient },
+        clients: { paymaster: KoraClient, smartWallet: LazorkitClient, connection: Connection },
         instructions: TransactionInstruction[],
         signResult: SignResult,
         feePayerAddress: string,
         timestamp: number,
-        credentialHash: CredentialHash
+        credentialHash: CredentialHash,
+        addressLookupTableAccounts: AddressLookupTableAccount[],
     ): Promise<TransactionSignature> {
         const createDeferredExecutionTxn = await clients.smartWallet.createChunkTxn({
             payer: new anchor.web3.PublicKey(feePayerAddress),
@@ -362,12 +393,10 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
             cpiInstructions: instructions,
             timestamp,
             credentialHash,
-        }, { useVersionedTransaction: true });
-
-        await clients.paymaster.signAndSendTransaction({
-            transaction: Buffer.from((createDeferredExecutionTxn as VersionedTransaction).serialize()).toString('base64'),
-            signer_key: feePayerAddress,
         });
+
+        const chunk = await this._sendToPaymaster(clients.paymaster, createDeferredExecutionTxn as Transaction, feePayerAddress);
+        await clients.connection.confirmTransaction(chunk, 'confirmed');
 
         const executeDeferredTransactionTxn = await clients.smartWallet.executeChunkTxn(
             {
@@ -375,15 +404,32 @@ export class LazorkitWalletAdapter extends BaseWalletAdapter {
                 smartWallet: this._publicKey!,
                 cpiInstructions: instructions,
             },
-            { useVersionedTransaction: true }
+            {
+                addressLookupTables: addressLookupTableAccounts,
+            }
         );
 
-        const signature = (await clients.paymaster.signAndSendTransaction({
-            transaction: Buffer.from((executeDeferredTransactionTxn as VersionedTransaction).serialize()).toString('base64'),
-            signer_key: feePayerAddress,
-        })) as any;
+        return await this._sendToPaymaster(clients.paymaster, executeDeferredTransactionTxn, feePayerAddress);
+    }
 
-        return signature.signature;
+    private async _sendToPaymaster(
+        paymaster: KoraClient,
+        transaction: Transaction | VersionedTransaction,
+        signerKey: string
+    ): Promise<string> {
+        let serialized: Buffer;
+        if ('version' in transaction) {
+            serialized = Buffer.from(transaction.serialize());
+        } else {
+            serialized = Buffer.from(transaction.serialize({ requireAllSignatures: false, verifySignatures: false }));
+        }
+
+        const result = await paymaster.signAndSendTransaction({
+            transaction: serialized.toString('base64'),
+            signer_key: signerKey,
+        }) as any;
+
+        return result.signature;
     }
 }
 

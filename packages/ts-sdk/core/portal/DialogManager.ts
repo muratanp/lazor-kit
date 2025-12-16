@@ -141,8 +141,8 @@ export class DialogManager extends EventEmitter {
       // Set timeout
       const timeoutId = setTimeout(() => {
         cleanup();
-        reject(new Error('Signing timed out after 30 seconds'));
-      }, 30000);
+        reject(new Error('Signing timed out after 60 seconds'));
+      }, 60000);
 
       // Clear timeout when resolved/rejected
       const originalResolve = resolve;
@@ -215,13 +215,8 @@ export class DialogManager extends EventEmitter {
         originalReject(reason);
       };
 
-      this._currentAction = API_ENDPOINTS.SIGN; // Using SIGN endpoint, assuming it handles arbitrary message if transaction param omitted or specific flag
-      // Assumption: We might need a specific action 'sign_message' if 'sign' expects transaction. 
-      // Given I can't check portal code, I will use 'sign' and pass message. 
-      // If the user provided verifyMessage logic implies standard passkey signing, the portal probably just needs the challenge.
-
+      this._currentAction = API_ENDPOINTS.SIGN;
       const encodedMessage = encodeURIComponent(message);
-      // We pass empty transaction or skip it.
       const signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}&credentialId=${encodeURIComponent(credentialId)}`;
 
       const shouldUsePopup = this.shouldUsePopup('sign');

@@ -50,7 +50,9 @@ type Transaction = anchor.web3.Transaction;
 type VersionedTransaction = anchor.web3.VersionedTransaction;
 type BN = anchor.BN;
 
-global.Buffer = Buffer;
+if (typeof globalThis !== 'undefined') {
+  (globalThis as any).Buffer = Buffer;
+}
 
 Buffer.prototype.subarray = function subarray(
   begin: number | undefined,
@@ -404,6 +406,7 @@ export class LazorkitClient {
         smartWallet: walletDevice.smartWallet,
         walletState: this.getWalletStatePubkey(walletDevice.smartWallet),
         walletDevice: account.pubkey,
+        passkeyPubkey: walletDevice.passkeyPubkey,
       };
     }
 

@@ -14,12 +14,14 @@ export interface DialogResult {
   readonly isCreated: boolean;
   readonly connectionType: 'create' | 'get';
   readonly timestamp: number;
+  readonly accountName?: string;
 }
 
 export interface SignResult {
   readonly signature: string;
   readonly clientDataJsonBase64: string;
   readonly authenticatorDataBase64: string;
+  readonly signedPayload: string;
 }
 
 export interface DialogManagerConfig {
@@ -82,8 +84,8 @@ export class DialogManager extends EventEmitter {
       // Set timeout for connection
       const timeoutId = setTimeout(() => {
         cleanup();
-        reject(new Error('Connection timed out after 30 seconds'));
-      }, 30000);
+        reject(new Error('Connection timed out after 60 seconds'));
+      }, 60000);
 
       // Clear timeout when resolved/rejected
       const originalResolve = resolve;
@@ -115,7 +117,7 @@ export class DialogManager extends EventEmitter {
    * @param message - Message to sign
    * @returns Promise that resolves with signature result
    */
-  async openSign(message: string): Promise<SignResult> {
+  async openSign(message: string, transaction: string, credentialId: string, clusterSimulation?: 'devnet' | 'mainnet'): Promise<SignResult> {
     return new Promise<SignResult>((resolve, reject) => {
       const cleanup = () => {
         this.off('sign-result', signHandler);
@@ -139,8 +141,8 @@ export class DialogManager extends EventEmitter {
       // Set timeout
       const timeoutId = setTimeout(() => {
         cleanup();
-        reject(new Error('Signing timed out after 30 seconds'));
-      }, 30000);
+        reject(new Error('Signing timed out after 60 seconds'));
+      }, 60000);
 
       // Clear timeout when resolved/rejected
       const originalResolve = resolve;
@@ -158,13 +160,69 @@ export class DialogManager extends EventEmitter {
       this._currentAction = API_ENDPOINTS.SIGN;
       const shouldUsePopup = this.shouldUsePopup('sign');
 
+      const encodedMessage = encodeURIComponent(message);
+      let signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}&transaction=${encodeURIComponent(transaction)}&credentialId=${encodeURIComponent(credentialId)}`;
+      if (clusterSimulation) {
+        signUrl += `&clusterSimulation=${clusterSimulation}`;
+      }
       if (shouldUsePopup) {
-        const encodedMessage = encodeURIComponent(message);
-        const signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}`;
         this.openPopup(signUrl).catch(reject);
       } else {
-        const encodedMessage = encodeURIComponent(message);
-        const signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}`;
+        this.openSignDialog(signUrl).catch(reject);
+      }
+    });
+  }
+
+  /**
+   * Open portal message signing dialog
+   * @param message - Message to sign
+   * @param credentialId - Credential ID
+   * @returns Promise that resolves with signature result
+   */
+  async openSignMessage(message: string, credentialId: string): Promise<SignResult> {
+    return new Promise<SignResult>((resolve, reject) => {
+      const cleanup = () => {
+        this.off('sign-result', signHandler);
+        this.off('error', errorHandler);
+      };
+
+      const signHandler = (data: SignResult) => {
+        cleanup();
+        resolve(data);
+      };
+
+      const errorHandler = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+
+      this.on('sign-result', signHandler);
+      this.on('error', errorHandler);
+
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('Signing timed out after 60 seconds'));
+      }, 60000);
+
+      const originalResolve = resolve;
+      const originalReject = reject;
+      resolve = (value) => {
+        clearTimeout(timeoutId);
+        originalResolve(value);
+      };
+      reject = (reason) => {
+        clearTimeout(timeoutId);
+        originalReject(reason);
+      };
+
+      this._currentAction = API_ENDPOINTS.SIGN;
+      const encodedMessage = encodeURIComponent(message);
+      const signUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.SIGN}&message=${encodedMessage}&credentialId=${encodeURIComponent(credentialId)}`;
+
+      const shouldUsePopup = this.shouldUsePopup('sign');
+      if (shouldUsePopup) {
+        this.openPopup(signUrl).catch(reject);
+      } else {
         this.openSignDialog(signUrl).catch(reject);
       }
     });
@@ -177,6 +235,156 @@ export class DialogManager extends EventEmitter {
     const connectUrl = `${this.config.portalUrl}?action=${API_ENDPOINTS.CONNECT}`;
     await this.openModal(connectUrl);
   }
+
+  private ensureFonts() {
+    const id = 'lazorkit-font-roboto-flex';
+    if (document.getElementById(id)) return;
+
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap';
+    document.head.appendChild(link);
+  }
+
+  private ensureDialogBackdropCSS() {
+    const id = 'lazorkit-dialog-backdrop-style';
+    if (document.getElementById(id)) return;
+
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+    /* ===== Backdrop (overlay nhẹ) ===== */
+    dialog#lazorkit-dialog::backdrop {
+      background: rgba(0,0,0,0);
+      animation: lazor-backdrop-in 160ms ease-out forwards;
+    }
+
+    dialog#lazorkit-dialog[data-state="closing"]::backdrop {
+      animation: lazor-backdrop-out 140ms ease-in forwards;
+    }
+
+    @keyframes lazor-backdrop-in {
+      from { background: rgba(0,0,0,0); }
+      to   { background: rgba(0,0,0,0.12); } /* ✅ overlay nhẹ */
+    }
+
+    @keyframes lazor-backdrop-out {
+      from { background: rgba(0,0,0,0.12); }
+      to   { background: rgba(0,0,0,0); }
+    }
+
+    /* ===== Panel animations ===== */
+    @keyframes lazor-drawer-in {
+      from { transform: translateY(16px); opacity: 0.98; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes lazor-drawer-out {
+      from { transform: translateY(0); opacity: 1; }
+      to   { transform: translateY(16px); opacity: 0.98; }
+    }
+
+    @keyframes lazor-float-in {
+      from { transform: scale(0.985) translateY(4px); opacity: 0; }
+      to   { transform: scale(1) translateY(0); opacity: 1; }
+    }
+
+    @keyframes lazor-float-out {
+      from { transform: scale(1) translateY(0); opacity: 1; }
+      to   { transform: scale(0.985) translateY(4px); opacity: 0; }
+    }
+
+    #lazorkit-panel {
+      will-change: transform, opacity;
+      transform-origin: center;
+    }
+
+    dialog#lazorkit-dialog[data-variant="drawer"][data-state="opening"] #lazorkit-panel {
+      animation: lazor-drawer-in 180ms cubic-bezier(.2,.9,.2,1) forwards;
+    }
+
+    dialog#lazorkit-dialog[data-variant="drawer"][data-state="closing"] #lazorkit-panel {
+      animation: lazor-drawer-out 150ms ease-in forwards;
+    }
+
+    dialog#lazorkit-dialog[data-variant="floating"][data-state="opening"] #lazorkit-panel {
+      animation: lazor-float-in 170ms cubic-bezier(.2,.9,.2,1) forwards;
+    }
+
+    dialog#lazorkit-dialog[data-variant="floating"][data-state="closing"] #lazorkit-panel {
+      animation: lazor-float-out 140ms ease-in forwards;
+    }
+
+    /* ===== Reduced motion ===== */
+    @media (prefers-reduced-motion: reduce) {
+      dialog#lazorkit-dialog::backdrop {
+        animation: none !important;
+        background: rgba(0,0,0,0.12) !important;
+      }
+      dialog#lazorkit-dialog[data-state="closing"]::backdrop {
+        background: rgba(0,0,0,0) !important;
+      }
+      dialog#lazorkit-dialog #lazorkit-panel {
+        animation: none !important;
+      }
+    }
+  `;
+    document.head.appendChild(style);
+  }
+
+  private createCloseButton(onClose: () => void): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+
+    // <ButtonArea title="Close Dialog" ... />
+    btn.title = 'Close Dialog';
+    btn.setAttribute('aria-label', 'Close Dialog');
+
+    // ButtonArea feel
+    Object.assign(btn.style, {
+      width: '36px',
+      height: '36px',
+      borderRadius: '10px',
+      border: 'none',
+      background: 'transparent',
+      cursor: 'pointer',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '0',
+      color: 'rgba(255, 255, 255, 0.6)',
+      outline: 'none', // Force remove browser default focus ring
+      webkitTapHighlightColor: 'transparent',
+    });
+
+    // hover/focus (ButtonArea UX) - Modified: Removed blue outline, kept hover bg
+    btn.addEventListener('mouseenter', () => {
+      btn.style.background = 'rgba(255,255,255,0.1)';
+      btn.style.color = '#ffffff';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.background = 'transparent';
+      btn.style.color = 'rgba(255, 255, 255, 0.6)';
+    });
+    // Removed focus outline event listeners as requested
+
+    btn.onclick = onClose;
+
+    // <LucideX />
+    btn.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg"
+      width="20" height="20" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  `;
+
+    return btn;
+  }
+
 
   /**
    * Open signing dialog (always iframe to avoid popup blocking)
@@ -331,9 +539,17 @@ export class DialogManager extends EventEmitter {
       this.iframeRef.src = url;
     }
 
-    // Show modal
+    // Show modal + opening animation
     if (this.dialogRef && !this.dialogRef.open) {
+      // trigger opening animation
+      this.dialogRef.setAttribute('data-state', 'opening');
+
       this.dialogRef.showModal();
+
+      // reset state after animation
+      window.setTimeout(() => {
+        if (this.dialogRef?.open) this.dialogRef.setAttribute('data-state', 'idle');
+      }, 220);
     }
   }
 
@@ -341,64 +557,100 @@ export class DialogManager extends EventEmitter {
    * Create modal dialog with iframe
    */
   private createModal(): void {
-    this.logger.debug(`Creating ${this.isMobileDevice() ? 'mobile' : 'desktop'} dialog`);
+    this.ensureFonts();
+    this.ensureDialogBackdropCSS();
 
-    // Pre-load credentials from localStorage
-    const credentialId = localStorage.getItem('CREDENTIAL_ID');
-    const publicKey = localStorage.getItem('PUBLIC_KEY');
-    const smartWalletAddress = localStorage.getItem('SMART_WALLET_ADDRESS');
+    const dialog = document.createElement('dialog');
 
-    console.log('Current credentials before dialog creation:', {
-      credentialIdExists: !!credentialId,
-      publicKeyExists: !!publicKey,
-      smartWalletAddressExists: !!smartWalletAddress
+    dialog.id = 'lazorkit-dialog';
+    dialog.style.colorScheme = 'dark';
+    dialog.setAttribute('data-theme', 'dark');
+    const isMobile = this.isMobileDevice();
+    const styles = getDialogStyles(isMobile);
+
+    // 1) overlay style cho <dialog>
+    Object.assign(dialog.style, styles.overlay);
+    Object.assign(dialog.style, {
+      // Porto dark
+      '--background-color-th_base': '#191919',
+      '--background-color-th_frame': '#191919',
+      '--text-color-th_base': '#eeeeee',
+      '--border-color-th_frame': 'rgba(255,255,255,0.10)',
+    } as any);
+    // 2) panel wrapper (trắng)
+    const panel = document.createElement('div');
+    const variant = isMobile ? 'drawer' : 'floating';
+    dialog.setAttribute('data-variant', variant);
+    dialog.setAttribute('data-state', 'idle');
+    panel.id = 'lazorkit-panel';
+    Object.assign(panel.style, styles.panel);
+    Object.assign(panel.style, {
+      display: 'flex',
+      flexDirection: 'column',
+    });
+    Object.assign(panel.style, {
+      background: 'var(--background-color-th_base, #fcfcfc)',
+      color: 'var(--text-color-th_base, #202020)',
+      fontFamily: '"Roboto Flex", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
     });
 
-    // Remove any existing dialog
-    if (this.dialogRef && this.dialogRef.parentNode) {
-      this.dialogRef.parentNode.removeChild(this.dialogRef);
-    }
-
-    // Create dialog element
-    const dialog = document.createElement('dialog');
-    dialog.id = 'lazorkit-dialog';
-
-    // Apply styles from the dialog style utility
-    const styles = getDialogStyles(this.isMobileDevice());
-
-    // Apply container styles
-    Object.assign(dialog.style, styles.container);
-
-    // Create iframe container
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      height: '32px',
+      flex: '0 0 auto',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      padding: '0 12px',
+      boxSizing: 'border-box',
+      borderBottom: '1px solid rgba(0,0,0,0.08)',
+    });
+    Object.assign(header.style, {
+      background: 'var(--background-color-th_frame, var(--background-color-th_base, #fcfcfc))',
+      color: 'var(--text-color-th_base, #202020)',
+      borderBottom: '1px solid var(--border-color-th_frame, rgba(0,0,0,0.08))',
+    });
     const iframeContainer = document.createElement('div');
     Object.assign(iframeContainer.style, styles.iframeContainer);
+    Object.assign(iframeContainer.style, { flex: '1 1 auto' });
+    Object.assign(iframeContainer.style, {
+      background: 'var(--background-color-th_base, #fcfcfc)',
+    });
+    Object.assign(panel.style, {
+      background: 'var(--background-color-th_base, #191919)',
+      color: 'var(--text-color-th_base, #eeeeee)',
+    });
 
-    // Create close button
-    const closeButton = document.createElement('button');
+    Object.assign(header.style, {
+      background: 'var(--background-color-th_frame, #191919)',
+      color: 'var(--text-color-th_base, #eeeeee)',
+      borderBottom: '1px solid var(--border-color-th_frame, rgba(255,255,255,0.10))',
+    });
+
+    Object.assign(iframeContainer.style, {
+      background: 'var(--background-color-th_base, #191919)',
+    });
+    // close button
+    const closeButton = this.createCloseButton(() => {
+      this.closeDialog();
+      this.emit('close');
+    });
+    Object.assign(closeButton.style, {
+      position: 'static',
+      top: '',
+      right: '',
+    });
     closeButton.id = 'lazorkit-dialog-close';
     closeButton.ariaLabel = 'Close';
     Object.assign(closeButton.style, styles.closeButton);
 
-    // Add close button SVG
-    closeButton.innerHTML = `
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41Z" fill="currentColor"/>
-      </svg>
-    `;
-
-    // Create iframe
+    // iframe
     const iframe = document.createElement('iframe');
     iframe.id = 'lazorkit-iframe';
     Object.assign(iframe.style, styles.iframe);
 
-    // Critical: Ensure proper permissions for WebAuthn
     iframe.allow = `publickey-credentials-get ${this.config.portalUrl}; publickey-credentials-create ${this.config.portalUrl}; clipboard-write; camera; microphone`;
-    iframe.setAttribute('aria-label', 'Lazor Wallet');
-    iframe.setAttribute('role', 'dialog');
-    iframe.tabIndex = 0;
-    iframe.title = 'Lazor';
 
-    // Critical: Ensure all necessary sandbox permissions
     const sandbox = iframe.sandbox;
     sandbox.add('allow-forms');
     sandbox.add('allow-scripts');
@@ -407,28 +659,25 @@ export class DialogManager extends EventEmitter {
     sandbox.add('allow-popups-to-escape-sandbox');
     sandbox.add('allow-modals');
 
-    // Add close on escape
-    dialog.addEventListener('cancel', () => {
-      this.closeDialog();
+    iframe.setAttribute('aria-label', 'Lazor Wallet');
+    iframe.tabIndex = 0;
+    iframe.title = 'Lazor';
+
+    dialog.addEventListener('cancel', () => this.closeDialog());
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) this.closeDialog();
     });
 
-    // Add iframe to container
+    // Create header content
+    header.appendChild(closeButton);
+
+    panel.appendChild(header);
     iframeContainer.appendChild(iframe);
+    panel.appendChild(iframeContainer);
+    dialog.appendChild(panel);
 
-    // Add elements to dialog
-    dialog.appendChild(closeButton);
-    dialog.appendChild(iframeContainer);
-
-    // Add event listener for close button
-    closeButton.onclick = () => {
-      this.closeDialog();
-      this.emit('close');
-    };
-
-    // Add dialog to document
     document.body.appendChild(dialog);
 
-    // Store references
     this.dialogRef = dialog;
     this.iframeRef = iframe;
   }
@@ -459,7 +708,8 @@ export class DialogManager extends EventEmitter {
             credentialId: data.credentialId,
             isCreated: data.connectionType === 'create' || !!data.publickey,
             connectionType: data.connectionType || (data.publickey ? 'create' : 'get'),
-            timestamp: data.timestamp || Date.now()
+            timestamp: data.timestamp || Date.now(),
+            accountName: data.accountName
           };
 
           this.emit('connect-result', transformedData);
@@ -471,6 +721,7 @@ export class DialogManager extends EventEmitter {
             signature: data.normalized,
             clientDataJsonBase64: data.clientDataJSONReturn,
             authenticatorDataBase64: data.authenticatorDataReturn,
+            signedPayload: data.msg
           };
           this.emit('sign-result', transformedDataSignResult);
           this.closeDialog();
@@ -489,50 +740,58 @@ export class DialogManager extends EventEmitter {
    * Close any open dialogs or popups
    */
   closeDialog(): void {
-    if (this.isClosing) {
-      return;
-    }
-
+    if (this.isClosing) return;
     this.isClosing = true;
 
+    const dialog = this.dialogRef;
+    const iframe = this.iframeRef;
+
     try {
-      // Clean up iframe first
-      if (this.iframeRef) {
-        console.log('🔍 Removing iframe from DOM');
-        if (this.iframeRef.parentNode) {
-          this.iframeRef.parentNode.removeChild(this.iframeRef);
-        }
-        this.iframeRef = null;
+      if (dialog) {
+        dialog.setAttribute('data-state', 'closing');
       }
 
-      // Force close any open dialog
-      if (this.dialogRef) {
-        // First try to close it normally
+      window.setTimeout(() => {
         try {
-          this.dialogRef.close();
-        } catch { }
-        // Then force remove from DOM
-        if (this.dialogRef.parentNode) {
-          this.dialogRef.parentNode.removeChild(this.dialogRef);
+          if (iframe) {
+            if (iframe.parentNode) {
+              iframe.parentNode.removeChild(iframe);
+            }
+            this.iframeRef = null;
+          }
+
+          if (dialog) {
+            try {
+              if (dialog.open) dialog.close();
+            } catch { }
+
+            if (dialog.parentNode) {
+              dialog.parentNode.removeChild(dialog);
+            }
+            this.dialogRef = null;
+          }
+
+          if (this.popupWindow) {
+            try {
+              this.popupWindow.close();
+            } catch { }
+            this.popupWindow = null;
+          }
+
+          if (this.popupCloseInterval) {
+            clearInterval(this.popupCloseInterval);
+            this.popupCloseInterval = null;
+          }
+
+          this.logger.debug('Closed dialog (animated)');
+        } catch (error) {
+          this.logger.error('Error during animated close:', error);
+        } finally {
+          this.isClosing = false;
         }
-        this.dialogRef = null;
-      }
-
-      // Clean up popup if any
-      if (this.popupWindow) {
-        try { this.popupWindow.close(); } catch { }
-        this.popupWindow = null;
-      }
-
-      if (this.popupCloseInterval) {
-        clearInterval(this.popupCloseInterval);
-        this.popupCloseInterval = null;
-      }
-
-      this.logger.debug('Closed dialog');
+      }, 170); // ⏱ match lazor-drawer-out / lazor-float-out
     } catch (error) {
       this.logger.error('Error closing dialog:', error);
-    } finally {
       this.isClosing = false;
     }
   }
@@ -578,3 +837,5 @@ export class DialogManager extends EventEmitter {
     this.logger.debug('Destroyed dialog manager');
   }
 }
+
+

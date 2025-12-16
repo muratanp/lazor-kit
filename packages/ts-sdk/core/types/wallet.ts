@@ -1,6 +1,7 @@
 import {
     Connection,
     TransactionInstruction,
+    AddressLookupTableAccount,
 } from '@solana/web3.js';
 import { WalletInfo, WalletConfig } from '../storage';
 
@@ -27,9 +28,10 @@ export interface WalletState {
     clearError: () => void;
 
     // Actions
-    connect: () => Promise<WalletInfo>;
+    connect: (options?: ConnectOptions & { feeMode?: 'paymaster' | 'user' }) => Promise<WalletInfo>;
     disconnect: () => Promise<void>;
-    signAndSendTransaction: (instruction: TransactionInstruction) => Promise<string>;
+    signAndSendTransaction: (payload: SignAndSendTransactionPayload) => Promise<string>;
+    signMessage: (message: string) => Promise<{ signature: string, signedPayload: string }>;
 }
 
 export interface ConnectOptions {
@@ -42,14 +44,22 @@ export interface DisconnectOptions {
     readonly onFail?: (error: Error) => void;
 }
 
-export interface SignOptions {
+export interface SignAndSendTransactionPayload {
+    readonly transactionOptions?: {
+        readonly feeToken?: string;
+        readonly addressLookupTableAccounts?: AddressLookupTableAccount[];
+        readonly computeUnitLimit?: number;
+        readonly clusterSimulation?: 'devnet' | 'mainnet';
+    };
+    readonly instructions: TransactionInstruction[];
     readonly onSuccess?: (signature: string) => void;
     readonly onFail?: (error: Error) => void;
 }
 
-
-
-
+export interface SignOptions {
+    readonly onSuccess?: (signature: string) => void;
+    readonly onFail?: (error: Error) => void;
+}
 
 export interface SignResponse {
     readonly msg?: string;

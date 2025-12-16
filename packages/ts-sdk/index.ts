@@ -31,5 +31,7 @@ export {
   Keypair
 } from '@solana/web3.js';
 
-export { Paymaster } from './core/wallet/Paymaster';
+export { Paymaster } from './core/paymaster/paymaster';
 export * from './core/contract';
+export * from './core/adapter';
+

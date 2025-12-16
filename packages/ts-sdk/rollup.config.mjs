@@ -12,6 +12,8 @@ export default createRollupConfig({
         'react',
         'react-dom',
         'react/jsx-runtime',
-        '@solana/web3.js'
+        '@solana/web3.js',
+        'buffer',
+        'crypto'
     ]
 });

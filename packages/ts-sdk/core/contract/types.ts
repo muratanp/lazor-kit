@@ -121,10 +121,8 @@ export interface PasskeySignature {
 }
 
 export interface TransactionBuilderOptions {
-  /** Use versioned transaction (v0) instead of legacy */
-  readonly useVersionedTransaction?: boolean;
-  /** Address lookup table for versioned transactions */
-  readonly addressLookupTable?: anchor.web3.AddressLookupTableAccount;
+  /** Address lookup tables for versioned transactions */
+  readonly addressLookupTables?: anchor.web3.AddressLookupTableAccount[];
   /** Custom recent blockhash (if not provided, fetched from connection) */
   readonly recentBlockhash?: string;
   /** Compute unit limit for transaction */

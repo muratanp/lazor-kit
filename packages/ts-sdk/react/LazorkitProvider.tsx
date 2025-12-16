@@ -24,7 +24,7 @@ export const LazorkitProvider = (props: LazorkitProviderProps) => {
     children,
     rpcUrl = DEFAULTS.RPC_ENDPOINT,
     portalUrl = DEFAULTS.PORTAL_URL,
-    paymasterConfig = { paymasterUrl: DEFAULTS.PAYMASTER_URL }
+    paymasterConfig = { paymasterUrl: DEFAULTS.PAYMASTER_URL },
   } = props;
 
   const { setConfig } = useWalletStore();
@@ -34,7 +34,7 @@ export const LazorkitProvider = (props: LazorkitProviderProps) => {
     setConfig({
       portalUrl,
       paymasterConfig,
-      rpcUrl
+      rpcUrl,
     });
   }, [rpcUrl, portalUrl, paymasterConfig, setConfig]);
 

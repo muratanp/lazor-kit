@@ -45,10 +45,6 @@ export const connectAction = async (
 
         try {
             const dialogResult: DialogResult = await dialogManager.openConnect();
-
-            // TODO: Handle 'user' feeMode logic in future
-            // For now, we proceed assuming paymaster usage for init or verification
-
             const paymaster = new Paymaster(config.paymasterConfig);
             const smartWallet = new LazorkitClient(get().connection);
 

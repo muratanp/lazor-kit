@@ -1,12 +1,14 @@
 # LazorKit React SDK
 
-LazorKit is the standard for WebAuthn smart wallets on Solana.
+LazorKit allows you to build **Passkey-native** Solana applications.
 
-## Why LazorKit?
-- **Better UX**: Passkey authentication replaces seed phrases
-- **Gasless**: Built-in paymaster integration
-- **Auto-Reconnect**: Seamless session persistence
-- **Secure**: Smart wallet architecture
+Traditionally, crypto requires users to manage complex seed phrases. LazorKit replaces this with the standard biometrics users already know: **FaceID**, **TouchID**, or **Windows Hello**.
+
+## Features
+- **Seedless**: Onboard users instantly with Passkeys
+- **Gasless**: Sponsored transactions via Paymaster
+- **Smart**: Programmable account logic (PDAs)
+- **Secure**: Hardware-bound credentials
 
 ## Installation
 
@@ -99,9 +101,10 @@ Signs and sends transaction via Paymaster.
 |---|---|---|
 | `payload.instructions` | `TransactionInstruction[]` | Instructions |
 | `payload.transactionOptions` | `object` | Optional config |
-| `...addressLookupTableAccounts` | `AddressLookupTableAccount[]` | Address Lookup Tables |
-| `...feeToken` | `string` | Fee token mint |
-| `...computeUnitLimit` | `number` | Compute unit limit |
+| `transactionOptions.feeToken` | `string` | Token address for gas fees (e.g. USDC). |
+| `transactionOptions.computeUnitLimit` | `number` | Max compute units. |
+| `transactionOptions.addressLookupTableAccounts` | `AddressLookupTableAccount[]` | Signup tables for v0 txs. |
+| `transactionOptions.clusterSimulation` | `'devnet' \| 'mainnet'` | Network for simulation. |
 
 **Returns**
 `Promise<string>` - Transaction signature.
